@@ -49,15 +49,14 @@ function DataLoaderRaw:__init(opt)
     
     local jj = 0
     local myfiles = {}
-    local LIMIT = 1000
 
     function browseFolder(root, relpath)
       for entity in lfs.dir(root) do
-	if jj >= LIMIT then return end
+	if jj >= opt.limitfiles then return end
         if entity~="." and entity~=".." then
           local fullPath=root..DIR_SEP..entity
           local mode=lfs.attributes(fullPath,"mode")
-          if mode=="file" then
+          if mode=="file" and isImage(entity) then
 	    myfiles[jj] = path.join(relpath, entity)
 	    jj = jj + 1
           elseif mode=="directory" then

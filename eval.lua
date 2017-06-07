@@ -33,6 +33,7 @@ cmd:option('-dump_path', 0, 'Write image paths along with predictions into vis j
 cmd:option('-sample_max', 1, '1 = sample argmax words. 0 = sample from distributions.')
 cmd:option('-beam_size', 2, 'used when sample_max = 1, indicates number of beams in beam search. Usually 2 or 3 works well. More is not better. Set this to 1 for faster runtime but a bit worse performance.')
 cmd:option('-temperature', 1.0, 'temperature when sampling from distributions (i.e. when sample_max = 0). Lower = "safer" predictions.')
+cmd:option('-delete', 0, 'Delete the image after the processing.')
 -- For evaluation on a folder of images:
 cmd:option('-image_folder', '', 'If this is nonempty then will predict on the images in this folder path')
 cmd:option('-image_root', '', 'In case the image paths have to be preprended with a root path to an image folder')
@@ -47,6 +48,7 @@ cmd:option('-id', 'evalscript', 'an id identifying this run/job. used only if la
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-iter', 0, 'file will be saved at output/$iter.json')
+cmd:option('-limitfiles', 1000, 'limit of files per recursive search of files')
 cmd:text()
 
 -------------------------------------------------------------------------------
@@ -86,7 +88,7 @@ local loader
 if string.len(opt.image_folder) == 0 then
   loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json}
 else
-  loader = DataLoaderRaw{folder_path = opt.image_folder, coco_json = opt.coco_json, image_root = opt.image_root}
+  loader = DataLoaderRaw{folder_path = opt.image_folder, coco_json = opt.coco_json, image_root = opt.image_root, limitfiles = opt.limitfiles}
 end
 
 -------------------------------------------------------------------------------
@@ -195,16 +197,16 @@ fullstr = ''
 if opt.dump_csv == 1 then
   for k,v in pairs(split_predictions) do
     fullstr = fullstr .. v['image_id'] .. ',' .. v['caption'] .. '\n'
-    --print(fullstr)
-    --fullstr = fullstr .. tostring(v)
   end
 end
 
 fh:write(fullstr)
 fh.close()
 
---for k=0,table.getn(todelete) do
-  --print('was going to remove' .. todelete[k])
-  ----os.remove(todelete[k])
---end
+if opt.delete == 1 then
+  for k=0,table.getn(todelete) do
+    --print('was going to remove' .. todelete[k])
+    os.remove(todelete[k])
+  end
+end
 
