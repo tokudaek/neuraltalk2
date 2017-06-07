@@ -16,6 +16,9 @@ function DataLoaderRaw:__init(opt)
   -- load the json file which contains additional information about the dataset
   print('DataLoaderRaw loading images from folder: ', opt.folder_path)
 
+  --print(opt.image_root)
+  --return true
+
   self.files = {}
   self.ids = {}
   if string.len(opt.coco_json) > 0 then
@@ -40,9 +43,35 @@ function DataLoaderRaw:__init(opt)
       end
       return false
     end
+
+    local lfs = require 'lfs'
+    DIR_SEP="/"
+    
+    local jj = 0
+    local myfiles = {}
+    local LIMIT = 1000
+
+    function browseFolder(root, relpath)
+      for entity in lfs.dir(root) do
+	if jj >= LIMIT then return end
+        if entity~="." and entity~=".." then
+          local fullPath=root..DIR_SEP..entity
+          local mode=lfs.attributes(fullPath,"mode")
+          if mode=="file" then
+	    myfiles[jj] = path.join(relpath, entity)
+	    jj = jj + 1
+          elseif mode=="directory" then
+            browseFolder(fullPath, path.join(relpath, entity))
+          end
+        end
+      end
+    end
+
     local n = 1
-    for file in paths.files(opt.folder_path, isImage) do
-      local fullpath = path.join(opt.folder_path, file)
+    browseFolder(opt.folder_path, '')
+
+    for kk = 0, table.getn(myfiles) do
+      local fullpath = myfiles[kk]
       table.insert(self.files, fullpath)
       table.insert(self.ids, tostring(n)) -- just order them sequentially
       n=n+1
@@ -79,7 +108,7 @@ function DataLoaderRaw:getBatch(opt)
     self.iterator = ri_next
 
     -- load the image
-    local img = image.load(self.files[ri], 3, 'byte')
+    local img = image.load(path.join(opt.image_folder, self.files[ri]), 3, 'byte')
     img_batch_raw[i] = image.scale(img, 256, 256)
 
     -- and record associated info as well

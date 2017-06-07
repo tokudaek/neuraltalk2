@@ -2,7 +2,7 @@ require 'torch'
 require 'nn'
 require 'nngraph'
 -- exotics
-require 'loadcaffe'
+--require 'loadcaffe'
 -- local imports
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
@@ -27,6 +27,7 @@ cmd:option('-num_images', 100, 'how many images to use when periodically evaluat
 cmd:option('-language_eval', 0, 'Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
 cmd:option('-dump_images', 1, 'Dump images into vis/imgs folder for vis? (1=yes,0=no)')
 cmd:option('-dump_json', 1, 'Dump json with predictions into vis folder? (1=yes,0=no)')
+cmd:option('-dump_csv', 0, 'Dump csv with predictions into vis folder? (1=yes,0=no)')
 cmd:option('-dump_path', 0, 'Write image paths along with predictions into vis json? (1=yes,0=no)')
 -- Sampling options
 cmd:option('-sample_max', 1, '1 = sample argmax words. 0 = sample from distributions.')
@@ -45,6 +46,7 @@ cmd:option('-backend', 'cudnn', 'nn|cudnn')
 cmd:option('-id', 'evalscript', 'an id identifying this run/job. used only if language_eval = 1 for appending to intermediate files')
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
+cmd:option('-iter', 0, 'file will be saved at output/$iter.json')
 cmd:text()
 
 -------------------------------------------------------------------------------
@@ -84,7 +86,7 @@ local loader
 if string.len(opt.image_folder) == 0 then
   loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json}
 else
-  loader = DataLoaderRaw{folder_path = opt.image_folder, coco_json = opt.coco_json}
+  loader = DataLoaderRaw{folder_path = opt.image_folder, coco_json = opt.coco_json, image_root = opt.image_root}
 end
 
 -------------------------------------------------------------------------------
@@ -96,11 +98,12 @@ protos.crit = nn.LanguageModelCriterion()
 protos.lm:createClones() -- reconstruct clones inside the language model
 if opt.gpuid >= 0 then for k,v in pairs(protos) do v:cuda() end end
 
+local todelete = {}
 -------------------------------------------------------------------------------
 -- Evaluation fun(ction)
 -------------------------------------------------------------------------------
 local function eval_split(split, evalopt)
-  local verbose = utils.getopt(evalopt, 'verbose', true)
+  local verbose = utils.getopt(evalopt, 'verbose', false)
   local num_images = utils.getopt(evalopt, 'num_images', true)
 
   protos.cnn:evaluate()
@@ -110,10 +113,11 @@ local function eval_split(split, evalopt)
   local loss_sum = 0
   local loss_evals = 0
   local predictions = {}
+  mm = 0
   while true do
 
     -- fetch a batch of data
-    local data = loader:getBatch{batch_size = opt.batch_size, split = split, seq_per_img = opt.seq_per_img}
+    local data = loader:getBatch{batch_size = opt.batch_size, split = split, seq_per_img = opt.seq_per_img, image_folder = opt.image_folder}
     data.images = net_utils.prepro(data.images, false, opt.gpuid >= 0) -- preprocess in place, and don't augment
     n = n + data.images:size(1)
 
@@ -135,7 +139,9 @@ local function eval_split(split, evalopt)
     local seq = protos.lm:sample(feats, sample_opts)
     local sents = net_utils.decode_sequence(vocab, seq)
     for k=1,#sents do
-      local entry = {image_id = data.infos[k].id, caption = sents[k]}
+      local realid = data.infos[k].file_path
+      --local entry = {image_id = data.infos[k].id, caption = sents[k]}
+      local entry = {image_id = realid, caption = sents[k]}
       if opt.dump_path == 1 then
         entry.file_name = data.infos[k].file_path
       end
@@ -149,6 +155,8 @@ local function eval_split(split, evalopt)
       if verbose then
         print(string.format('image %s: %s', entry.image_id, entry.caption))
       end
+      todelete[mm] = path.join(opt.image_folder, realid)
+      mm = mm + 1
     end
 
     -- if we wrapped around the split or used up val imgs budget then bail
@@ -177,6 +185,26 @@ if lang_stats then
 end
 
 if opt.dump_json == 1 then
-  -- dump the json
-  utils.write_json('vis/vis.json', split_predictions)
+  print('#########################################################')
+  utils.write_json('output/' .. opt.iter .. '.json', split_predictions)
 end
+
+fh = io.open('output/' .. opt.iter .. '.csv', "w")
+fullstr = ''
+
+if opt.dump_csv == 1 then
+  for k,v in pairs(split_predictions) do
+    fullstr = fullstr .. v['image_id'] .. ',' .. v['caption'] .. '\n'
+    --print(fullstr)
+    --fullstr = fullstr .. tostring(v)
+  end
+end
+
+fh:write(fullstr)
+fh.close()
+
+--for k=0,table.getn(todelete) do
+  --print('was going to remove' .. todelete[k])
+  ----os.remove(todelete[k])
+--end
+
